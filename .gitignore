@@ -15,3 +15,12 @@ tests/dfc_probe
 # Python bytecode from the corpus tools
 __pycache__/
 *.pyc
+
+# Real site card data (UIDs, keys, layout) — keep local only, never commit.
+# Root-anchored so the generic blanks under examples/ stay trackable.
+/*.dfc
+/*.dfcb
+/*.json
+/*.pm3.json
+/*.pm3-write.cmd
+/our-fixes-backup/
