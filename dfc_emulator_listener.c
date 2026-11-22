@@ -187,6 +187,13 @@ NfcCommand dfc_worker_listener_callback(NfcGenericEvent event, void* context) {
                 dfc->iso_dep_command_len = 0;
                 dfc->iso_dep_response_offset = 0;
                 dfc->iso_dep_cid_valid = false;
+                // After echoing the DESELECT, return the radio to HALT so it
+                // answers the reader's follow-up WUPA and re-selection (a
+                // genuine chip does this; some access readers require the full
+                // DESELECT->WUPA->re-RATS cycle before granting access). The 4a
+                // listener drops back to Idle on this same frame so the
+                // re-selection's RATS is answered with the ATS.
+                ret = NfcCommandSleep;
             }
             break;
         }
