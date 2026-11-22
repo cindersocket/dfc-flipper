@@ -315,23 +315,79 @@ static uint8_t* dfc_credential_read_whole_file(
     return buffer;
 }
 
+// Read only the first octet so the file can be classified (binary DER vs text)
+// before any heap is committed to a whole-file buffer. For a text credential
+// this lets the caller load the ~14 KB import codec plugin while the heap is at
+// its freshest (the file is not resident yet), which is what lets the plugin's
+// .text section find a large enough contiguous block on the tighter 2.0.0 FAP
+// heap. The file is reopened for the full read; the extra open is cheap.
+static bool dfc_credential_peek_first_octet(
+    const char* path,
+    uint8_t* out_first,
+    DfcCredentialLoadStatus* status) {
+    bool ok = false;
+    File* file = storage_file_alloc(store.storage);
+
+    do {
+        if(!storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING)) {
+            if(status) *status = DfcCredentialLoadStatusOpenFailed;
+            break;
+        }
+        if(storage_file_size(file) == 0) {
+            if(status) *status = DfcCredentialLoadStatusMalformedFile;
+            break;
+        }
+        if(storage_file_read(file, out_first, 1) != 1) {
+            if(status) *status = DfcCredentialLoadStatusOpenFailed;
+            break;
+        }
+        ok = true;
+    } while(false);
+
+    storage_file_close(file);
+    storage_file_free(file);
+    return ok;
+}
+
 static bool dfc_credential_file_load(
     DfcCredential* credential,
     FuriString* path,
     DfcCredentialLoadStatus* status) {
     bool parsed = false;
     size_t raw_len = 0;
+    uint8_t* raw = NULL;
     DfcTextCodec codec = {0};
+    const char* path_cstr = furi_string_get_cstr(path);
 
     if(status) *status = DfcCredentialLoadStatusMalformedFile;
 
     dfc_log_memory("before credential read");
-    uint8_t* raw = dfc_credential_read_whole_file(furi_string_get_cstr(path), &raw_len, status);
-    if(!raw) return false;
-    dfc_log_memory("after credential read");
+
+    // Classify the file from its first octet before allocating the whole-file
+    // buffer, so the text path can load its codec plugin while the heap is
+    // freshest. The binary (DER) path needs no plugin at all.
+    uint8_t first_octet = 0;
+    if(!dfc_credential_peek_first_octet(path_cstr, &first_octet, status)) return false;
+    const bool is_binary = (first_octet == DFC_BINARY_FIRST_OCTET);
 
     do {
-        if(raw[0] == DFC_BINARY_FIRST_OCTET) {
+        if(!is_binary) {
+            // Open the import codec plugin here, BEFORE the whole-file buffer is
+            // read, so its ~14 KB load sees the largest contiguous block the
+            // heap can offer. Holding the file during this load is what pushed
+            // the plugin's .text allocation over the edge on 2.0.0.
+            if(!dfc_text_codec_open(&codec, false)) {
+                if(status) *status = DfcCredentialLoadStatusCodecUnavailable;
+                break;
+            }
+            dfc_log_memory("after codec open");
+        }
+
+        raw = dfc_credential_read_whole_file(path_cstr, &raw_len, status);
+        if(!raw) break;
+        dfc_log_memory("after credential read");
+
+        if(is_binary) {
             DfcDerStatus decoded = dfc_der_decode(credential, raw, raw_len);
             if(decoded != DfcDerOk) {
                 FURI_LOG_E(TAG, "binary rejected: %s", dfc_der_status_name(decoded));
@@ -339,10 +395,6 @@ static bool dfc_credential_file_load(
                 break;
             }
         } else {
-            if(!dfc_text_codec_open(&codec, false)) {
-                if(status) *status = DfcCredentialLoadStatusCodecUnavailable;
-                break;
-            }
             DfcTextError detail = {0};
             DfcTextStatus text_status =
                 codec.api->parse(credential, (const char*)raw, raw_len, &detail);
