@@ -316,9 +316,31 @@ NfcCommand dfc_worker_listener_callback(NfcGenericEvent event, void* context) {
         const bool hardware_read_continuation = hardware_command == DFC_CMD_ADDITIONAL_FRAME &&
                                                 dfc->hardware_read_chain_active;
         const uint32_t hardware_prepare_start = DWT->CYCCNT;
+#if DFC_DEBUG_APDU
+        dfc_debug_log_hex("RX", native_apdu, native_apdu_len);
+#endif
+        // Route through the EV2 secure-messaging envelope so EV2/EV3 secure
+        // sessions (enrollment, authenticated reads/writes) work on hardware.
+        // Stock 2.0.0 applies the envelope only in the FFI virtual PICC.
+#if DFC_ENABLE_EV2_SECURE_MESSAGING
+        if(!dfc_emulator_handle_command_secured(
+               emulator, native_apdu, native_apdu_len, tx_buffer, dfc)) {
+#else
         if(!dfc_emulator_handle_command(emulator, native_apdu, native_apdu_len, tx_buffer, dfc)) {
+#endif
             view_dispatcher_send_custom_event(dfc->view_dispatcher, DfcCustomEventEmulate);
         }
+#if DFC_DEBUG_APDU
+        FURI_LOG_I(
+            TAG,
+            "EV2 cmd=%02X sel=%d ev2act=%d ctr=%u plain=%d authk=%u",
+            (unsigned)(native_apdu_len ? native_apdu[0] : 0),
+            (int)emulator->selected_application,
+            (int)emulator->ev2_session_active,
+            (unsigned)emulator->ev2_command_counter,
+            (int)emulator->ev2_response_plain,
+            (unsigned)emulator->ev2_authenticated_key_no);
+#endif
         if(hardware_command == DFC_CMD_READ_DATA) {
             dfc->hardware_read_chain_active = emulator->pending_chain_offset <
                                               emulator->pending_chain_len;
