@@ -16,6 +16,22 @@
 #define ISO14443_4A_NAD_MASK DFC_ISO14443_4A_NAD_MASK
 #define ISO_DEP_FRAME_MAX    62U // 64-byte FSC minus CRC_A
 
+// APDU/EV2 tracing, compiled out by default. Set to 1 (here or via -D) to log
+// every RX/TX frame and the post-command EV2 session state to the CLI (`log`).
+#ifndef DFC_DEBUG_APDU
+#define DFC_DEBUG_APDU 0
+#endif
+#if DFC_DEBUG_APDU
+static void dfc_debug_log_hex(const char* label, const uint8_t* data, size_t len) {
+    char hex[3 * 64 + 1];
+    size_t n = len < 64 ? len : 64;
+    size_t o = 0;
+    for(size_t i = 0; i < n; i++) o += (size_t)snprintf(hex + o, sizeof(hex) - o, "%02X ", data[i]);
+    hex[o] = '\0';
+    FURI_LOG_I(TAG, "%s[%u] %s%s", label, (unsigned)len, hex, len > n ? "..." : "");
+}
+#endif
+
 static void dfc_hardware_timing_add(DfcHardwareTiming* timing, uint32_t cycles) {
     timing->count++;
     timing->total_cycles += cycles;
@@ -105,6 +121,10 @@ static void send_next_i_response(Dfc* dfc, Iso14443_4aListener* listener) {
 
 static void send_i_response(Dfc* dfc, Iso14443_4aListener* listener, DfcByteBuf* response) {
     if(dfc_bytebuf_get_size_bytes(response) == 0) return;
+#if DFC_DEBUG_APDU
+    dfc_debug_log_hex(
+        "TX", dfc_bytebuf_get_data(response), dfc_bytebuf_get_size_bytes(response));
+#endif
 #if !__has_include(<lib/nfc/protocols/type_4_tag/type_4_tag.h>)
     dfc->iso_dep_picc_block = dfc->iso_dep_expected_pcd_block;
     dfc->iso_dep_expected_pcd_block ^= 1;
