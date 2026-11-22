@@ -18,11 +18,39 @@ DFC_CDEFINES = [
     ("DFC_ENABLE_TEXT_CODEC", "1"),
     ("DFC_BUILD_PROFILE", "DFC_PROFILE_FULL_EV3"),
     ("DFC_ENABLE_STORAGE_8K", "0"),
-    ("DFC_MAX_APPS", "2"),
-    ("DFC_MAX_FILES", "8"),
+    # Debug instrumentation (set to 0 for release). DFC_DEBUG_APDU logs RX/TX
+    # frames + EV2 state; DFC_DEBUG_SAVE dumps credential fields before a save;
+    # DFC_DEBUG_VALIDATE records the rejected validate-model line for save errors.
+    # WARNING: DFC_DEBUG_APDU=1 writes to USB SYNCHRONOUSLY inside the NFC radio
+    # callback. Each log line costs ~5 ms; a chained write (WRDUMP + decrypted-clear
+    # dump) pushed the response to ~343 ms, far past the ATS FWT (TB1=0x81 -> FWI=8
+    # -> ~77 ms), so a real reader (multi-application) saw the exchange degrade and sent a
+    # truncated follow-up command -> 91 1E and a half-enrolled badge. KEEP THIS AT 0
+    # for any live-reader run; only enable for local-sim/host debugging where there
+    # is no FWT deadline. See memory dfc-multiapp-enrollment-progress.
+    ("DFC_DEBUG_APDU", "0"),
+    # Disable EV2/EV3 features an access-control (multi-application) credential never uses, to
+    # reclaim heap + code so a 16-application credential and the text codec plugin
+    # both fit in the (tighter) 2.0.0 FAP heap. The multi-application captures only ever use
+    # standard data files, AES/EV2 auth, ChangeKey, and SetConfiguration. Re-enable
+    # any of these if a future credential needs it.
+    ("DFC_ENABLE_VIRTUAL_CARD", "0"),
+    ("DFC_ENABLE_PROXIMITY_CHECK", "1"),
+    ("DFC_ENABLE_DELEGATED_APPLICATIONS", "0"),
+    ("DFC_ENABLE_STATIC_SIGNATURE", "0"),
+    ("DFC_ENABLE_SDM", "0"),
+    ("DFC_ENABLE_TRANSACTION_MAC", "0"),
+    # Re-enabled: the multi-application EV2 enrollment sends SetConfiguration option 0x05
+    # (APPLICATION_CAPABILITIES), whose handler is gated by this flag. Disabling
+    # it made that command return PARAMETER_ERROR (91 9E) and the reader aborted.
+    # The text-codec OOM is now solved by loading the plugin before the file read
+    # (dfc_credential_file_load), so this feature fits again.
+    ("DFC_ENABLE_TRANSACTION_TIMER", "1"),
+    ("DFC_MAX_APPS", "16"),
+    ("DFC_MAX_FILES", "18"),
     ("DFC_MAX_KEYS", "8"),
-    ("DFC_FILE_POOL_SIZE", "2048"),
-    ("DFC_KEY_POOL_SIZE", "384"),
+    ("DFC_FILE_POOL_SIZE", "2560"),
+    ("DFC_KEY_POOL_SIZE", "1024"),
     ("DFC_MAX_FILE_DATA", "1024"),
 ]
 
